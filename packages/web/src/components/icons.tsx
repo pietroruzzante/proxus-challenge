@@ -60,6 +60,14 @@ export function UploadIcon({ className }: IconProps) {
   );
 }
 
+export function PaperclipIcon({ className }: IconProps) {
+  return (
+    <svg className={className} fill="none" stroke="currentColor" strokeWidth="1.6" viewBox="0 0 24 24">
+      <path d="M17 8.5 9.5 16a3 3 0 1 1-4.24-4.24l7.5-7.5a4.5 4.5 0 1 1 6.36 6.36L11.6 18.1a1.5 1.5 0 1 1-2.12-2.12l7-7" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
 export function CheckCircleIcon({ className }: IconProps) {
   return (
     <svg className={className} fill="none" stroke="currentColor" strokeWidth="1.6" viewBox="0 0 24 24">

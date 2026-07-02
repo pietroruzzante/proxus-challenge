@@ -1,15 +1,15 @@
-import { useAtom, useAtomRefresh } from "@effect/atom-react";
+import { useAtom, useAtomRefresh, useAtomSet } from "@effect/atom-react";
 import type { AgentMessage } from "@proxus/shared";
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { Streamdown } from "streamdown";
 import "streamdown/styles.css";
 import { artifactsQuery } from "../domain/artifacts/atoms.ts";
-import { materialsQuery } from "../domain/materials/atoms.ts";
+import { materialsQuery, uploadMaterialAction } from "../domain/materials/atoms.ts";
 import { applyInvalidations, invalidationsForToolCall } from "../domain/tutor/invalidation.ts";
 import { streamTutorMessage } from "../domain/tutor/stream.ts";
 import { tutorMessagesAtom } from "../domain/tutor/atoms.ts";
 import proxusLogo from "../assets/proxus-logo.png";
-import { SparkleIcon } from "./icons.tsx";
+import { PaperclipIcon, SparkleIcon, UploadIcon } from "./icons.tsx";
 
 // ─── Marker parsing ────────────────────────────────────────────────────────────
 
@@ -138,6 +138,32 @@ export function Chat({ onSelectArtifact }: ChatProps) {
   const turnStartRef = useRef(0);
   const didAutoStartRef = useRef(false);
 
+  const upload = useAtomSet(uploadMaterialAction, { mode: "promise" });
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [isDraggedOver, setIsDraggedOver] = useState(false);
+  const [isUploading, setIsUploading] = useState(false);
+  const [uploadError, setUploadError] = useState<string | undefined>();
+  const dragCounterRef = useRef(0);
+
+  const uploadFile = async (file: File) => {
+    if (!file.name.toLowerCase().endsWith(".pdf")) {
+      setUploadError("Only .pdf files are supported.");
+      return;
+    }
+
+    setIsUploading(true);
+    setUploadError(undefined);
+
+    try {
+      const result = await upload(file);
+      setMessages((current) => [...current, { role: "assistant", content: result.tutorNote }]);
+    } catch (cause) {
+      setUploadError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setIsUploading(false);
+    }
+  };
+
   const renderItems = useMemo(
     () => groupMessages(messages, thoughtSecondsRef.current),
     [messages]
@@ -212,7 +238,40 @@ export function Chat({ onSelectArtifact }: ChatProps) {
 
 
   return (
-    <main className="grid h-screen max-h-screen min-w-0 grid-rows-[auto_1fr_auto_auto] bg-white max-md:h-auto max-md:max-h-none">
+    <main
+      className="relative grid h-screen max-h-screen min-w-0 grid-rows-[auto_1fr_auto_auto] bg-white max-md:h-auto max-md:max-h-none"
+      onDragEnter={(event) => {
+        event.preventDefault();
+        dragCounterRef.current += 1;
+        setIsDraggedOver(true);
+      }}
+      onDragLeave={(event) => {
+        event.preventDefault();
+        dragCounterRef.current -= 1;
+        if (dragCounterRef.current <= 0) {
+          dragCounterRef.current = 0;
+          setIsDraggedOver(false);
+        }
+      }}
+      onDragOver={(event) => event.preventDefault()}
+      onDrop={(event) => {
+        event.preventDefault();
+        dragCounterRef.current = 0;
+        setIsDraggedOver(false);
+        const file = event.dataTransfer.files[0];
+        if (file !== undefined) {
+          void uploadFile(file);
+        }
+      }}
+    >
+      {isDraggedOver && (
+        <div className="pointer-events-none absolute inset-0 z-10 grid place-items-center bg-violet-50/90 backdrop-blur-sm">
+          <div className="flex flex-col items-center gap-3 rounded-2xl border-2 border-dashed border-violet-400 px-10 py-8">
+            <UploadIcon className="size-8 text-violet-500" />
+            <p className="font-medium text-slate-700">Drop a PDF to upload</p>
+          </div>
+        </div>
+      )}
       <header className="flex items-center justify-between gap-4 border-slate-200 border-b px-6 py-5">
         <div>
           <p className="mb-1 font-bold text-violet-500 text-xs uppercase tracking-widest">Ephemeral session</p>
@@ -258,14 +317,38 @@ export function Chat({ onSelectArtifact }: ChatProps) {
       </section>
 
       {error === undefined ? null : <p className="m-0 px-6 pb-3 text-red-500 text-sm">{error}</p>}
+      {uploadError === undefined ? null : <p className="m-0 px-6 pb-3 text-red-500 text-sm">{uploadError}</p>}
+      {isUploading && <p className="m-0 px-6 pb-3 text-slate-500 text-sm">Uploading PDF…</p>}
 
       <form
-        className="grid grid-cols-[1fr_auto] gap-3 border-slate-200 border-t bg-white/95 px-6 pt-4 pb-6"
+        className="grid grid-cols-[auto_1fr_auto] items-end gap-3 border-slate-200 border-t bg-white/95 px-6 pt-4 pb-6"
         onSubmit={(event) => {
           event.preventDefault();
           void submit(input);
         }}
       >
+        <button
+          className="grid size-11 shrink-0 place-items-center rounded-full border border-slate-200 text-slate-500 transition hover:border-violet-400 hover:text-violet-600 disabled:cursor-not-allowed disabled:opacity-40"
+          type="button"
+          title="Attach a PDF"
+          disabled={isUploading}
+          onClick={() => fileInputRef.current?.click()}
+        >
+          <PaperclipIcon className="size-5" />
+        </button>
+        <input
+          accept=".pdf"
+          className="hidden"
+          onChange={(event) => {
+            const file = event.target.files?.[0];
+            if (file !== undefined) {
+              void uploadFile(file);
+            }
+            event.target.value = "";
+          }}
+          ref={fileInputRef}
+          type="file"
+        />
         <textarea
           className="w-full resize-none rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-slate-900 leading-6 outline-none focus:border-transparent focus:ring-2 focus:ring-violet-400"
           value={input}
@@ -276,7 +359,7 @@ export function Chat({ onSelectArtifact }: ChatProps) {
               void submit(input);
             }
           }}
-          placeholder="Ask your tutor something…"
+          placeholder="Ask your tutor something, or attach a PDF…"
           rows={1}
         />
         <button
